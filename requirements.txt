@@ -1,0 +1,7 @@
+beautifulsoup4
+urllib3
+langchain==0.2.5
+langchain-community-vectorstores
+langchain-huggingface
+langchain-community-llms
+langchain-community-document-loaders
