@@ -7,57 +7,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 from langchain.chains import RetrievalQA
 from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import KonlpyTextSplitter
+
 import os
-
-
-def crawl_website(domain):
-    visited = set()
-    to_visit = [domain]
-    pages = []
-
-    while to_visit:
-        url = to_visit.pop(0)
-        if url in visited:
-            continue
-
-        try:
-            response = requests.get(url)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            text = soup.get_text()
-            pages.append((url, text))
-            visited.add(url)
-
-            for link in soup.find_all('a'):
-                href = link.get('href')
-                if href:
-                    full_url = urljoin(url, href)
-                    if urlparse(full_url).netloc == urlparse(domain).netloc:
-                        to_visit.append(full_url)
-        except Exception as e:
-            print(f"Error crawling {url}: {str(e)}")
-
-    return pages
-
-
-def vectorize_and_store(pages):
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-    texts = []
-    for url, content in pages:
-        chunks = text_splitter.split_text(content)
-        texts.extend([(chunk, {"source": url}) for chunk in chunks])
-
-    embeddings = HuggingFaceEmbeddings()
-
-    print(embeddings)
-
-    vector_store = FAISS.from_texts([text for text, metadata in texts], embeddings,
-                                    metadatas=[metadata for text, metadata in texts])
-
-    return vector_store
-
-
-def save_vector_store(vector_store, path):
-    vector_store.save_local(path)
 
 
 def load_vector_store(path):
@@ -69,30 +21,30 @@ def load_vector_store(path):
 
 
 def query_vector_store(vector_store, query):
-    llm = Ollama(model="llama3:latest")
+    llm = Ollama(model="llama3.1")
+
+    retriever = vector_store.as_retriever(
+        search_type="similarity_score_threshold",
+        search_kwargs={"score_threshold": 0.5, "k": 2,
+                       # "filter": lambda metadata: not set(metadata.get("role", [])).isdisjoint([1, 2])
+        }
+    )
+
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
-        retriever=vector_store.as_retriever()
+        retriever=retriever
     )
     result = qa_chain({"query": query})
     return result["result"]
 
 
 if __name__ == "__main__":
-    domain = "https://hajubal.hashnode.dev/"  # 크롤링할 도메인 주소
+    domain = "https://www.clien.net/service/board/cm_wp"  # 크롤링할 도메인 주소
     vector_store_path = "faiss_index"
 
-    # 1. 웹사이트 크롤링 및 벡터화
-    if not os.path.exists(vector_store_path):
-        print("Crawling website...")
-        pages = crawl_website(domain)
-        print("Vectorizing and storing data...")
-        vector_store = vectorize_and_store(pages)
-        save_vector_store(vector_store, vector_store_path)
-    else:
-        print("Loading existing vector store...")
-        vector_store = load_vector_store(vector_store_path)
+    print("Loading existing vector store...")
+    vector_store = load_vector_store(vector_store_path)
 
     # 2. 벡터 데이터 조회
     while True:
